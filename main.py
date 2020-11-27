@@ -65,8 +65,10 @@ class CSVFixityCallBack:
 
         return "SHA256", fixity_value.lower()
 
+
 def _unpad(s):
     return s[:-ord(s[len(s) - 1:])]
+
 
 def decrypt(key, cypher_text):
     base64_decoded = base64.b64decode(cypher_text)
@@ -75,6 +77,7 @@ def decrypt(key, cypher_text):
     decryptor = cipher.decryptor()
     output_bytes = decryptor.update(base64_decoded) + decryptor.finalize()
     return _unpad(output_bytes.decode("utf-8"))
+
 
 def session_key(server, bucket_name, username, password, aeskey):
     request = requests.get(f"https://{server}/api/admin/locations/upload?refresh={bucket_name}",
@@ -117,7 +120,7 @@ def get_metadata_doc(metadata_map):
     return xml_request
 
 
-def create_package(folder, document, pdf_folder, csv_folder, jp2_folder, config):
+def create_package(folder, document, pdf_folder, csv_folder, jp2_folder, config, item):
     pdf_document_folder = os.path.join(pdf_folder, document)
     csv_document_folder = os.path.join(csv_folder, document)
     jp2_document_folder = os.path.join(jp2_folder, document)
@@ -148,9 +151,17 @@ def create_package(folder, document, pdf_folder, csv_folder, jp2_folder, config)
 
     callback = CSVFixityCallBack(csv_document_folder)
 
+    bar_code = item[BAR_CODE].strip()
     identifiers = {"document": document}
 
-    package_path = complex_asset_package(Title=document, Description=document, preservation_files_list=preservation_files_list,
+    folder_name = str("0000" + bar_code + "_").strip()
+    document_id = document.lstrip(folder_name)
+
+    asset_title = f"{item[TITLE]}/{document_id}"
+    asset_description = f"{item[SECTION]}/{item[BODY]}/{item[TITLE]}/{document_id}"
+
+    package_path = complex_asset_package(Title=asset_title, Description=asset_description,
+                                         preservation_files_list=preservation_files_list,
                                          access_files_list=access_files_list, Identifiers=identifiers,
                                          export_folder=export_folder, parent_folder=folder,
                                          Preservation_files_fixity_callback=callback)
@@ -181,6 +192,8 @@ def create_package(folder, document, pdf_folder, csv_folder, jp2_folder, config)
     s3_object.upload_file(package_path, Callback=ProgressPercentage(package_path), ExtraArgs=metadata,
                           Config=transfer_config)
 
+    sys.stdout.write(u"\n")
+    sys.stdout.flush()
 
 def main():
     config = configparser.ConfigParser()
@@ -210,8 +223,8 @@ def main():
     for item in metadata:
         bar_code = item[BAR_CODE].strip()
         folder_name = str("0000" + bar_code).strip()
-        folder_title = item[TITLE].strip()
-        folder_description = item[SECTION].strip()
+        folder_title = f"{item[TITLE].strip()}"
+        folder_description = f"{item[SECTION].strip()}/{item[BODY]}"
         pdf_folder = os.path.join(pdf_path, folder_name)
         csv_folder = os.path.join(csv_path, folder_name)
         jp2_folder = os.path.join(jp2_path, folder_name)
@@ -236,11 +249,9 @@ def main():
                 entities = entity.identifier("document", document)
                 if len(entities) == 0:
                     print(f"Starting Asset Creation.. {document}")
-                    create_package(folder, document, pdf_folder, csv_folder, jp2_folder, config)
+                    create_package(folder, document, pdf_folder, csv_folder, jp2_folder, config, item)
                 else:
                     print(f"Skipping {document} already ingested.")
-
-
         else:
             print(f"Folder {folder_name} is missing, skipping....")
             continue
